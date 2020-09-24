@@ -19,8 +19,8 @@ package ontology_go_sdk
 
 import (
 	"crypto/elliptic"
-	"encoding/hex"
 	"fmt"
+
 	"github.com/ontio/ontology-crypto/ec"
 	"github.com/ontio/ontology-crypto/keypair"
 	s "github.com/ontio/ontology-crypto/signature"
@@ -122,117 +122,6 @@ func (this *Account) GetSigScheme() s.SignatureScheme {
 	return this.SigScheme
 }
 
-/** AccountData - for wallet read and save, no crypto object included **/
-type AccountData struct {
-	keypair.ProtectedKey
-
-	Label     string `json:"label"`
-	PubKey    string `json:"publicKey"`
-	SigSch    string `json:"signatureScheme"`
-	IsDefault bool   `json:"isDefault"`
-	Lock      bool   `json:"lock"`
-	scrypt    *keypair.ScryptParam
-}
-
-func NewAccountData(keyType keypair.KeyType, curveCode byte, sigScheme s.SignatureScheme, passwd []byte, scrypts ...*keypair.ScryptParam) (*AccountData, error) {
-	if len(passwd) == 0 {
-		return nil, fmt.Errorf("password cannot empty")
-	}
-	if !CheckKeyTypeCurve(keyType, curveCode) {
-		return nil, fmt.Errorf("curve unmath key type")
-	}
-	if !CheckSigScheme(keyType, sigScheme) {
-		return nil, fmt.Errorf("sigScheme:%s does not match with KeyType:%s", sigScheme.Name(), GetKeyTypeString(keyType))
-	}
-	var scrypt *keypair.ScryptParam
-	if len(scrypts) > 0 {
-		scrypt = scrypts[0]
-	} else {
-		scrypt = keypair.GetScryptParameters()
-	}
-	prvkey, pubkey, err := keypair.GenerateKeyPair(keyType, curveCode)
-	if err != nil {
-		return nil, fmt.Errorf("generateKeyPair error:%s", err)
-	}
-	address := types.AddressFromPubKey(pubkey)
-	addressBase58 := address.ToBase58()
-	prvSecret, err := keypair.EncryptWithCustomScrypt(prvkey, addressBase58, passwd, scrypt)
-	if err != nil {
-		return nil, fmt.Errorf("encryptPrivateKey error:%s", err)
-	}
-	accData := &AccountData{}
-	accData.SetKeyPair(prvSecret)
-	accData.SigSch = sigScheme.Name()
-	accData.PubKey = hex.EncodeToString(keypair.SerializePublicKey(pubkey))
-	accData.scrypt = scrypt
-	return accData, nil
-}
-
-func (this *AccountData) GetAccount(passwd []byte) (*Account, error) {
-	privateKey, err := keypair.DecryptWithCustomScrypt(&this.ProtectedKey, passwd, this.scrypt)
-	if err != nil {
-		return nil, fmt.Errorf("decrypt privateKey error:%s", err)
-	}
-	publicKey := privateKey.Public()
-	addr := types.AddressFromPubKey(publicKey)
-	scheme, err := s.GetScheme(this.SigSch)
-	if err != nil {
-		return nil, fmt.Errorf("signature scheme error:%s", err)
-	}
-	return &Account{
-		PrivateKey: privateKey,
-		PublicKey:  publicKey,
-		Address:    addr,
-		SigScheme:  scheme,
-	}, nil
-}
-
-func (this *AccountData) GetScrypt() *keypair.ScryptParam {
-	return this.scrypt
-}
-func (this *AccountData) SetScript(scrypt *keypair.ScryptParam) {
-	this.scrypt = scrypt
-}
-
-func (this *AccountData) Clone() *AccountData {
-	accData := &AccountData{
-		Label:     this.Label,
-		PubKey:    this.PubKey,
-		SigSch:    this.SigSch,
-		IsDefault: this.IsDefault,
-		Lock:      this.Lock,
-		scrypt:    this.scrypt,
-	}
-	accData.SetKeyPair(this.GetKeyPair())
-	return accData
-}
-
-func (this *AccountData) SetKeyPair(keyinfo *keypair.ProtectedKey) {
-	this.Address = keyinfo.Address
-	this.EncAlg = keyinfo.EncAlg
-	this.Alg = keyinfo.Alg
-	this.Hash = keyinfo.Hash
-	this.Key = make([]byte, len(keyinfo.Key))
-	copy(this.Key, keyinfo.Key)
-	this.Param = keyinfo.Param
-	this.Salt = make([]byte, len(keyinfo.Salt))
-	copy(this.Salt, keyinfo.Salt)
-}
-
-func (this *AccountData) GetKeyPair() *keypair.ProtectedKey {
-	var keyinfo = new(keypair.ProtectedKey)
-	keyinfo.Address = this.Address
-	keyinfo.EncAlg = this.EncAlg
-	keyinfo.Alg = this.Alg
-	keyinfo.Hash = this.Hash
-	keyinfo.Key = make([]byte, len(this.Key))
-	copy(keyinfo.Key, this.Key)
-	keyinfo.Param = this.Param
-	keyinfo.Salt = make([]byte, len(this.Salt))
-	copy(keyinfo.Salt, this.Salt)
-	return keyinfo
-}
-
 func GetKeyTypeString(keyType keypair.KeyType) string {
 	switch keyType {
 	case keypair.PK_ECDSA:
@@ -305,26 +194,4 @@ func CheckSigScheme(keyType keypair.KeyType, sigScheme s.SignatureScheme) bool {
 		return false
 	}
 	return true
-}
-
-func GetCurveName(pubKey []byte) string {
-	if len(pubKey) < 2 {
-		return ""
-	}
-	switch keypair.KeyType(pubKey[0]) {
-	case keypair.PK_ECDSA, keypair.PK_SM2:
-		c, err := keypair.GetCurve(pubKey[1])
-		if err != nil {
-			return ""
-		}
-		return c.Params().Name
-	case keypair.PK_EDDSA:
-		if pubKey[1] == keypair.ED25519 {
-			return "ed25519"
-		} else {
-			return ""
-		}
-	default:
-		return ""
-	}
 }

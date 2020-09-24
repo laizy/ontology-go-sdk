@@ -3,3 +3,4 @@ vendor/*
 glide.lock
 .idea/
 wallet.dat
+flash-pool
